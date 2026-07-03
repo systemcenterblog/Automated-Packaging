@@ -1,0 +1,302 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Cloudpaging Automated Packaging" Height="820" Width="1180"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="Padding" Value="8"/>
+        </Style>
+        <Style TargetType="Label">
+            <Setter Property="Margin" Value="0,4,4,0"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="0,2,0,6"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Margin" Value="0,2,0,6"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin" Value="0,4,0,4"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+        </Style>
+    </Window.Resources>
+
+    <TabControl Name="MainTabs" Margin="6">
+
+        <!-- ===================== TAB 1: New Packaging Run ===================== -->
+        <TabItem Header="New Packaging Run">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="3*"/>
+                </Grid.ColumnDefinitions>
+
+                <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Padding="8">
+                    <StackPanel>
+
+                        <GroupBox Header="Target">
+                            <StackPanel>
+                                <Label Content="Hyper-V VM"/>
+                                <DockPanel>
+                                    <Button Name="RefreshVmsButton" Content="Refresh" DockPanel.Dock="Right"/>
+                                    <ComboBox Name="VMNameCombo" IsEditable="True"/>
+                                </DockPanel>
+                                <TextBlock Name="VmWarningText" Foreground="DarkOrange" TextWrapping="Wrap" Visibility="Collapsed"/>
+
+                                <Label Content="Baseline Checkpoint"/>
+                                <TextBox Name="BaselineCheckpointBox" Text="Studio-Baseline"/>
+
+                                <Label Content="App Name (mandatory)"/>
+                                <TextBox Name="AppNameBox"/>
+
+                                <Label Content="Mode"/>
+                                <RadioButton Name="ModeFullRadio" Content="Full unattended run" IsChecked="True" GroupName="Mode" Margin="0,4,0,2"/>
+                                <RadioButton Name="ModeCaptureOnlyRadio" Content="Capture only (review before finalize)" GroupName="Mode" Margin="0,2,0,4"/>
+
+                                <TextBlock Name="CredentialHintText" TextWrapping="Wrap" Foreground="Gray" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Installer">
+                            <StackPanel>
+                                <Label Content="Installer file (.msi/.exe/.bat/.cmd/.ps1)"/>
+                                <DockPanel>
+                                    <Button Name="BrowseInstallerButton" Content="Browse..." DockPanel.Dock="Right"/>
+                                    <TextBox Name="InstallerPathBox"/>
+                                </DockPanel>
+
+                                <Label Content="Description"/>
+                                <TextBox Name="DescriptionBox"/>
+
+                                <Label Content="Name"/>
+                                <TextBox Name="NameBox"/>
+
+                                <Label Content="Icon File"/>
+                                <DockPanel>
+                                    <Button Name="BrowseIconButton" Content="Browse..." DockPanel.Dock="Right"/>
+                                    <TextBox Name="IconFileBox"/>
+                                </DockPanel>
+
+                                <Label Content="Working Folder"/>
+                                <DockPanel>
+                                    <Button Name="BrowseWorkingFolderButton" Content="Browse..." DockPanel.Dock="Right"/>
+                                    <TextBox Name="WorkingFolderBox"/>
+                                </DockPanel>
+
+                                <Label Content="Arguments"/>
+                                <TextBox Name="ArgumentsBox"/>
+
+                                <Label Content="Studio Command Line"/>
+                                <TextBox Name="StudioCommandlineBox"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Output Settings">
+                            <StackPanel>
+                                <Label Content="Guest Output Folder (recorded in JSON, not host path)"/>
+                                <DockPanel>
+                                    <Button Name="BrowseOutputFolderButton" Content="Browse..." DockPanel.Dock="Right"/>
+                                    <TextBox Name="OutputFolderBox" Text="C:\NIP_software\output"/>
+                                </DockPanel>
+
+                                <Label Content="Output File Name (no extension)"/>
+                                <TextBox Name="OutputFileNameNoExtBox"/>
+
+                                <Label Content="Compression"/>
+                                <ComboBox Name="CompressionCombo" SelectedIndex="0">
+                                    <ComboBoxItem Content="LZMA"/>
+                                    <ComboBoxItem Content="NONE"/>
+                                </ComboBox>
+
+                                <Label Content="Encryption"/>
+                                <ComboBox Name="EncryptionCombo" SelectedIndex="0">
+                                    <ComboBoxItem Content="AES-256-Enhanced"/>
+                                    <ComboBoxItem Content="AES-256"/>
+                                    <ComboBoxItem Content="None"/>
+                                </ComboBox>
+
+                                <Label Content="Default Disposition Layer"/>
+                                <ComboBox Name="DefaultDispositionLayerCombo" SelectedIndex="0">
+                                    <ComboBoxItem Content="3"/>
+                                    <ComboBoxItem Content="4"/>
+                                </ComboBox>
+
+                                <Label Content="Capture Timeout (sec, 1 = auto-calculate)"/>
+                                <TextBox Name="CaptureTimeoutSecBox" Text="1"/>
+
+                                <Label Content="Default Service Virtualization Action"/>
+                                <ComboBox Name="DefaultServiceVirtualizationActionCombo" SelectedIndex="0">
+                                    <ComboBoxItem Content="None"/>
+                                    <ComboBoxItem Content="Register"/>
+                                    <ComboBoxItem Content="Start"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Behavior">
+                            <StackPanel>
+                                <CheckBox Name="CaptureAllProcessesCheck" Content="Capture all processes" IsChecked="False"/>
+                                <CheckBox Name="IncludeSystemInstallationProcessesCheck" Content="Include system installation processes" IsChecked="True"/>
+                                <CheckBox Name="IgnoreChangesUnderInstallerPathCheck" Content="Ignore changes under installer path" IsChecked="True"/>
+                                <CheckBox Name="ReplaceRegistryShortPathsCheck" Content="Replace registry short paths" IsChecked="True"/>
+                                <CheckBox Name="IncludeChildProccessesCheck" Content="Include child processes" IsChecked="True"/>
+                                <CheckBox Name="PrerequisitesCheck" Content="Run prerequisite commands before capture" IsChecked="False"/>
+                                <CheckBox Name="FinalizeIntoSTPCheck" Content="Finalize into .stp" IsChecked="True"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Prerequisite Commands (run before capture)">
+                            <StackPanel>
+                                <ListBox Name="PrerequisiteCommandsList" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="PrerequisiteCommandsAddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="PrerequisiteCommandsRemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="PrerequisiteCommandsInput"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Custom Command Lines (extra command captures)">
+                            <StackPanel>
+                                <ListBox Name="CustomCommandlinesList" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="CustomCommandlinesAddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="CustomCommandlinesRemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="CustomCommandlinesInput"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Registry Exclusions (appended to built-in baseline, never replaces it)">
+                            <StackPanel>
+                                <ListBox Name="RegistryExclusionsList" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="RegistryExclusionsAddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="RegistryExclusionsRemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="RegistryExclusionsInput"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="File Exclusions (appended to built-in baseline, never replaces it)">
+                            <StackPanel>
+                                <ListBox Name="FileExclusionsList" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="FileExclusionsAddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="FileExclusionsRemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="FileExclusionsInput"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Sandbox Registry Exclusions">
+                            <StackPanel>
+                                <ListBox Name="SandboxRegistryExclusionsList" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="SandboxRegistryExclusionsAddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="SandboxRegistryExclusionsRemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="SandboxRegistryExclusionsInput"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Sandbox File Exclusions">
+                            <StackPanel>
+                                <ListBox Name="SandboxFileExclusionsList" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="SandboxFileExclusionsAddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="SandboxFileExclusionsRemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="SandboxFileExclusionsInput"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Processes Allowed Access To Layer 4">
+                            <StackPanel>
+                                <ListBox Name="ProcessesAllowedAccessToLayer4List" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="ProcessesAllowedAccessToLayer4AddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="ProcessesAllowedAccessToLayer4RemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="ProcessesAllowedAccessToLayer4Input"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Processes Denied Access To Layers 3 and 4">
+                            <StackPanel>
+                                <ListBox Name="ProcessesDeniedAccessToLayers3and4List" Height="60"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Name="ProcessesDeniedAccessToLayers3and4AddButton" Content="Add" DockPanel.Dock="Right"/>
+                                    <Button Name="ProcessesDeniedAccessToLayers3and4RemoveButton" Content="Remove Selected" DockPanel.Dock="Right"/>
+                                    <TextBox Name="ProcessesDeniedAccessToLayers3and4Input"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <Button Name="PreviewAdvancedJsonButton" Content="Preview / Edit Advanced JSON..." HorizontalAlignment="Left" Margin="0,4,0,20"/>
+
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid Grid.Column="1" Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Name="StartRunButton" Content="Start Run" Background="#DDEEDD"/>
+                        <Button Name="CancelRunButton" Content="Cancel" IsEnabled="False"/>
+                        <Button Name="OpenOutputFolderButton" Content="Open Output Folder" IsEnabled="False"/>
+                        <Button Name="OpenMergeLogButton" Content="Open Merge Results Log" IsEnabled="False"/>
+                    </StackPanel>
+
+                    <TextBlock Name="StatusText" Grid.Row="1" Text="Idle" FontWeight="Bold" Margin="0,0,0,8"/>
+
+                    <TextBox Name="RunOutputBox" Grid.Row="2" IsReadOnly="True" TextWrapping="NoWrap"
+                              FontFamily="Consolas" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Auto" AcceptsReturn="True"/>
+
+                </Grid>
+            </Grid>
+        </TabItem>
+
+        <!-- ===================== TAB 2: Advanced (raw JSON) ===================== -->
+        <TabItem Header="Advanced (raw JSON)">
+            <DockPanel Margin="8">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Name="ValidateJsonButton" Content="Validate JSON"/>
+                    <Button Name="RevertJsonButton" Content="Revert to Generated"/>
+                </StackPanel>
+                <TextBlock Name="AdvancedJsonStatusText" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBox Name="AdvancedJsonBox" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+            </DockPanel>
+        </TabItem>
+
+        <!-- ===================== TAB 3: Pending Review ===================== -->
+        <TabItem Header="Pending Review">
+            <DockPanel Margin="8">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Name="RefreshPendingButton" Content="Refresh"/>
+                    <Button Name="CollectOutputButton" Content="Collect Output" IsEnabled="False"/>
+                </StackPanel>
+                <DataGrid Name="PendingReviewGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                           CanUserAddRows="False" SelectionMode="Single" SelectionUnit="FullRow">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="App Name" Binding="{Binding AppName}" Width="*"/>
+                        <DataGridTextColumn Header="VM Name" Binding="{Binding VMName}" Width="*"/>
+                        <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="2*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </TabItem>
+
+    </TabControl>
+</Window>
