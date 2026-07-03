@@ -1,0 +1,82 @@
+{
+  "JsonConfigVersion": 1.3,
+  "PackagingNotes": [
+    "Template pre-filled with sane defaults + typical MATLAB silent-install syntax.",
+    "Fill in / adjust each TODO while you step through Studio's GUI manually, then this becomes a working config for studio-nip.ps1.",
+    "MATLAB's installer supports silent installs via '-mode silent -agreeToLicense yes -inputFile <file>' -- confirm the exact syntax for your MATLAB version/license type (individual vs network/concurrent license differ).",
+    "If using a network license server, the installer_input.txt file (referenced by InstallerCommands below) needs a fileInstallationKey and licensePath -- create that alongside the installer and reference it via -inputFile."
+  ],
+  "ProjectSettings": {
+    "ProjectName": "MATLAB_R2024b_64bit",
+    "ProjectDescription": "MATLAB is a programming and numeric computing platform used for data analysis, algorithm development, and modeling.",
+    "IconFile": "C:\\Program Files\\MATLAB\\R2024b\\bin\\win64\\matlab.exe",
+    "WorkingFolder": "C:\\Program Files\\MATLAB\\R2024b\\bin\\win64\\",
+    "CommandLine": "C:\\Program Files\\MATLAB\\R2024b\\bin\\win64\\matlab.exe",
+    "TargetOS": [
+      "Win10-x64",
+      "Win11-x64"
+    ]
+  },
+  "PreCaptureCommands": [],
+  "CaptureSettings": {
+    "CaptureTimeoutSec": 3600,
+    "CaptureAllProcesses": false,
+    "IncludeSystemInstallationProcesses": true,
+    "IgnoreChangesUnderInstallerPath": true,
+    "ReplaceRegistryShortPaths": true,
+    "RegistryExclusions": [
+      "HKEY_CURRENT_USER\\Software\\Classes",
+      "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+    ],
+    "FileExclusions": [
+      "%winDir%\\Installer\\*.msp",
+      "%winDir%\\Installer\\*.msi"
+    ],
+    "ProcessExclusions": [],
+    "ProcessInclusions": {
+      "IncludeChildProcesses": true,
+      "Include": []
+    }
+  },
+  "CaptureCommands": {
+    "Enabled": true,
+    "InstallerPrefix": "",
+    "InstallerPath": "C:\\NIP_software\\Matlab\\Installer_cfg\\setup.exe",
+    "InstallerCommands": " -mode silent -agreeToLicense yes -inputFile installer_input.txt ",
+    "PostInstallActions": {
+      "Enabled": false,
+      "Commands": []
+    }
+  },
+  "PostCaptureCommands": {
+    "AddFolders": {},
+    "AddKeys": {},
+    "MergedFolders": {}
+  },
+  "ModifyAssets": {
+    "AddFiles": {},
+    "ModifyKeys": {}
+  },
+  "VirtualizationSettings": {
+    "DefaultDispositionLayer": 3,
+    "DefaultServiceVirtualizationAction": "Register",
+    "FileDispositionLayers": {},
+    "RegistryDispositionLayers": {},
+    "SandboxFileExclusions": [],
+    "SandboxRegistryExclusions": []
+  },
+  "SecurityOverrideSettings": {
+    "AllowAccessLayer4": {
+      "AllowReadAndCopy": true,
+      "Processes": []
+    },
+    "DenyAccessLayer3": []
+  },
+  "OutputSettings": {
+    "EncryptionMethod": "None",
+    "CompressionMethod": "LZMA",
+    "OutputFileNameNoExt": "",
+    "FinalizeIntoSTP": true,
+    "OutputFolder": "C:\\NIP_software\\Matlab\\Output\\"
+  }
+}
