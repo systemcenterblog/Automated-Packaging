@@ -56,6 +56,25 @@ To supply a hand-edited JSON instead of auto-generating one:
     -InstallerPath '.\Samples\7-Zip\7-ZIP.exe'
 ```
 
+### How the JSON actually reaches Cloudpaging Studio
+
+The JSON never goes into Cloudpaging Studio directly. The chain is:
+
+1. `Invoke-VMPackaging.ps1` copies the JSON into the guest and calls `studio-nip.ps1 -config_file_path <guest JSON path>`.
+2. `studio-nip.ps1` (the vendor script — treat as third-party, see [CLAUDE.md](CLAUDE.md)) reads that JSON and translates it into:
+   - a silent-install wrapper batch file (`Installer.bat`)
+   - a non-interactive packaging **INI** file (`studio_config.ini`)
+   - temporary overwrites of Studio's own filter/disposition `.dat` files under `<Studio install dir>\lib\` (`filefilt.dat`, `regfilt.dat`, `procexcluded.dat`, `procfilt.dat`, `defprocsel.dat`, `filedispositions.dat`, `regdispositions.dat`), restored to their originals afterward
+3. The actual Studio executable is launched with the **INI**, not the JSON:
+
+   ```powershell
+   Start-Process -FilePath $studioCmd -ArgumentList "-a ""$studioIni""  -l ""$studioLog"" " -Verb runas -Wait -PassThru
+   ```
+
+   `$studioCmd` resolves to `<Studio install dir>\JukeboxStudio.exe` if that legacy binary is present, otherwise `<Studio install dir>\CloudpagingStudio.exe` (the current one) — normally under `C:\Program Files\Numecent\Cloudpaging Studio\`.
+
+So: JSON → `studio-nip.ps1` → INI/DAT/batch files → `CloudpagingStudio.exe -a <ini> -l <log>`.
+
 ## 3. Two-phase run with a human review step (`-CaptureOnly` / `-CollectOutput`)
 
 Use this when an engineer needs to eyeball the capture (or add customizations directly in Cloudpaging Studio's GUI) before the package is sealed.
