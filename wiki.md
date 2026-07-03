@@ -71,15 +71,17 @@ Use this when an engineer needs to eyeball the capture (or add customizations di
 This silently installs and captures 7-Zip, but generates the JSON with `FinalizeIntoSTP=false`, so Studio never builds the `.stp`. The VM is left running (not reverted) and the script prints something like:
 
 ```text
-Capture complete. VM 'CloudPagingStudio' is left running with project '7-Zip cloudpaged' open for review.
-  1. Console/RDP into 'CloudPagingStudio'.
-  2. Open Cloudpaging Studio and review the captured project.
+Silent install/capture started in the background for project '7-Zip cloudpaged' on VM 'CloudPagingStudio'.
+  1. Console/RDP into 'CloudPagingStudio' and wait for the capture to finish (Studio runs headlessly and exits on its own -- it will NOT be open waiting for you).
+  2. Manually launch Cloudpaging Studio, then File > Open the project at: C:\NIP_software\7-Zip\Output\7-Zip cloudpaged.stw
   3. Add any additional customizations directly in Studio.
   4. Click Build/Finalize to produce the .stp.
   5. Run: .\Invoke-VMPackaging.ps1 -CollectOutput -AppName '7-Zip'
 ```
 
-**Manual step:** console/RDP into the VM, open Cloudpaging Studio, confirm 7-Zip's files/registry were captured correctly, optionally add dispositions or extra files/keys directly in the Studio UI, then click Build.
+> Studio's `-a` automation switch is fully non-interactive regardless of `FinalizeIntoSTP` -- with it `false`, Studio still captures headlessly, writes a `<ProjectName>.stw` project file (+ `.stc`/`MERGE_RESULTS` log) to the guest output folder, and exits within roughly a minute. It does **not** leave a window open. `Invoke-VMPackaging.ps1` launches it as a detached background process in the guest for this reason, so the host script doesn't wait on it.
+
+**Manual step:** console/RDP into the VM, wait for the capture to finish, manually launch Cloudpaging Studio and open the `.stw` project printed above, confirm 7-Zip's files/registry were captured correctly, optionally add dispositions or extra files/keys directly in the Studio UI, then click Build.
 
 **Phase 2 — collect the finished package:**
 
@@ -105,6 +107,6 @@ All of these are `CreateJson.ps1` / `Invoke-VMPackaging.ps1` parameters (the lat
 | Pin a specific registry key to a disposition layer | `-CustomRegistryDisposition @(@{Location='...'; Layer=1; Recurse=$false})` |
 | Exclude a path from the virtualization sandbox | `-SandboxFileExclusions`, `-SandboxRegistryExclusions` |
 | Change compression/encryption | `-Compression 'LZMA'`, `-Encryption 'AES-256-Enhanced'` |
-| Skip finalizing into `.stp` (leave project open) | `-FinalizeIntoSTP $false` (this is what `-CaptureOnly` sets automatically) |
+| Skip finalizing into `.stp` (capture only, .stw left for manual review) | `-FinalizeIntoSTP $false` (this is what `-CaptureOnly` sets automatically) |
 
 See [README.md](README.md) for the full JSON schema and [Example_JSON_1.3.json](Example_JSON_1.3.json) for an annotated template covering every field.

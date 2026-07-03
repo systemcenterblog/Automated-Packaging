@@ -16,10 +16,13 @@
       -CaptureOnly  : same as default up through silent install + capture, but the
                        generated JSON forces FinalizeIntoSTP=false so Studio captures
                        the project without building the .stp, and the VM is left
-                       running afterward (never reverted) so an engineer can connect,
-                       review the captured project in Cloudpaging Studio's GUI, make
-                       additional customizations, and click Build when ready. Writes
-                       a small state file recording the pending review.
+                       running afterward (never reverted). Studio itself still runs
+                       headlessly and exits on its own once the capture finishes --
+                       it does NOT stay open. It leaves a "<ProjectName>.stw" project
+                       file in the guest output folder; an engineer connects, manually
+                       launches Cloudpaging Studio, opens that .stw, makes any
+                       customizations, and clicks Build when ready. Writes a small
+                       state file recording the pending review.
       -CollectOutput: resumes a run started with -CaptureOnly. Connects to the
                        still-running VM (without restoring it -- that would destroy
                        the engineer's work), copies the finished output back to the
@@ -53,8 +56,10 @@
     reverting it to baseline. Useful for inspecting a failed/interesting run.
 .PARAMETER CaptureOnly
     Run silent install + capture only (forces FinalizeIntoSTP=false), then leave
-    the VM running for an engineer to review/customize the project in Cloudpaging
-    Studio's GUI before finalizing. Follow up with -CollectOutput once ready.
+    the VM running. Studio exits on its own once the capture finishes -- an
+    engineer must manually open the resulting "<ProjectName>.stw" project in
+    Cloudpaging Studio to review/customize/finalize it. Follow up with
+    -CollectOutput once ready.
 .PARAMETER CollectOutput
     Resume a run started with -CaptureOnly: connect to the still-running VM
     (without reverting it first), collect the finished output, then revert to
@@ -507,16 +512,29 @@ try {
         throw "Patched JSON config failed to copy into the guest: expected at '$guestJsonPath'."
     }
 
-    Write-Host "Running studio-nip.ps1 inside the guest..."
-    Invoke-Command -Session $session -ScriptBlock {
-        param($nipScript, $configPath)
-        & $nipScript -config_file_path $configPath
-    } -ArgumentList "$GuestNipRoot\studio-nip.ps1", $guestJsonPath | ForEach-Object { Write-Host $_ }
-
-    Write-Host "Copying JSON config back to $hostAppOutput..."
-    Copy-Item -Path $effectiveJsonConfigPath -Destination (Join-Path $hostAppOutput "$AppName.json") -Force
-
     if ($CaptureOnly) {
+        # Verified against a real run: Studio's -a automation switch is fully non-interactive
+        # regardless of FinalizeIntoSTP -- with FinalizeIntoSTP=false it still captures headlessly,
+        # writes a "<ProjectName>.stw" project file (+ .stc/MERGE_RESULTS log) to $guestOutput, and
+        # exits on its own within roughly a minute; it does NOT leave a Studio window open. There's
+        # therefore no GUI sitting on the VM for an engineer to walk up to -- they need to manually
+        # launch Cloudpaging Studio and open that .stw file themselves to review/customize/Build.
+        # studio-nip.ps1 still calls Start-Process -Verb runas -Wait on Studio internally
+        # (studio-nip.ps1:991), so launching it detached here (rather than via a blocking
+        # Invoke-Command, like the non-CaptureOnly branch below does) is defensive: it keeps this
+        # script from ever hanging on that -Wait if a given install/capture ends up taking far
+        # longer than expected, or Studio ever does need interactive input.
+        Write-Host "Starting studio-nip.ps1 inside the guest (detached -- runs headlessly, does not wait on it)..."
+        Invoke-Command -Session $session -ScriptBlock {
+            param($nipScript, $configPath, $logPath)
+            Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+                '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $nipScript, '-config_file_path', $configPath
+            ) -RedirectStandardOutput $logPath -WindowStyle Normal
+        } -ArgumentList "$GuestNipRoot\studio-nip.ps1", $guestJsonPath, "$guestInstallerCfg\studio-nip-launch.log"
+
+        Write-Host "Copying JSON config back to $hostAppOutput..."
+        Copy-Item -Path $effectiveJsonConfigPath -Destination (Join-Path $hostAppOutput "$AppName.json") -Force
+
         $pendingState = [pscustomobject]@{
             VMName             = $VMName
             BaselineCheckpoint = $BaselineCheckpoint
@@ -531,15 +549,24 @@ try {
 
         $projectName = (Get-Content -Path $effectiveJsonConfigPath -Raw | ConvertFrom-Json).ProjectSettings.ProjectName
         Write-Host ""
-        Write-Host "Capture complete. VM '$VMName' is left running with project '$projectName' open for review."
-        Write-Host "  1. Console/RDP into '$VMName'."
-        Write-Host "  2. Open Cloudpaging Studio and review the captured project."
+        Write-Host "Silent install/capture started in the background for project '$projectName' on VM '$VMName'."
+        Write-Host "  1. Console/RDP into '$VMName' and wait for the capture to finish (Studio runs headlessly and exits on its own -- it will NOT be open waiting for you)."
+        Write-Host "  2. Manually launch Cloudpaging Studio, then File > Open the project at: $guestOutput\$projectName.stw"
         Write-Host "  3. Add any additional customizations directly in Studio."
         Write-Host "  4. Click Build/Finalize to produce the .stp."
         Write-Host "  5. Run: .\Invoke-VMPackaging.ps1 -CollectOutput -AppName '$AppName'"
         Write-Host ""
         return
     }
+
+    Write-Host "Running studio-nip.ps1 inside the guest..."
+    Invoke-Command -Session $session -ScriptBlock {
+        param($nipScript, $configPath)
+        & $nipScript -config_file_path $configPath
+    } -ArgumentList "$GuestNipRoot\studio-nip.ps1", $guestJsonPath | ForEach-Object { Write-Host $_ }
+
+    Write-Host "Copying JSON config back to $hostAppOutput..."
+    Copy-Item -Path $effectiveJsonConfigPath -Destination (Join-Path $hostAppOutput "$AppName.json") -Force
 
     Write-Host "Copying output back to $hostAppOutput..."
     Copy-Item -Path "$guestOutput\*" -Destination $hostAppOutput -Recurse -FromSession $session -Force
