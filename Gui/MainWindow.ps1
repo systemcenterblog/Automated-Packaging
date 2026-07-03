@@ -224,7 +224,7 @@ $previewAdvancedJson = {
     catch {
         [System.Windows.MessageBox]::Show("Failed to generate JSON: $($_.Exception.Message)", 'Advanced JSON') | Out-Null
     }
-}.GetNewClosure()
+}
 
 $controls['PreviewAdvancedJsonButton'].Add_Click($previewAdvancedJson)
 
@@ -336,6 +336,9 @@ $controls['CancelRunButton'].Add_Click({
             "Cancelling may leave the VM in an inconsistent state -- Invoke-VMPackaging.ps1's revert logic may not run cleanly. Continue?",
             'Cancel Run', 'YesNo', 'Warning')
         if ($result -eq 'Yes') {
+            $controls['CancelRunButton'].IsEnabled = $false
+            $controls['StatusText'].Text = 'Cancelling...'
+            $controls['StatusText'].Foreground = 'DarkOrange'
             Stop-PackagingJob -Job $script:CurrentJob
         }
     }
@@ -352,6 +355,18 @@ $script:PollTimer.Add_Tick({
     foreach ($line in (Get-PackagingJobOutput -Job $script:CurrentJob)) {
         $controls['RunOutputBox'].AppendText("$line`r`n")
         $controls['RunOutputBox'].ScrollToEnd()
+
+        switch -Wildcard ($line) {
+            '*Running studio-nip.ps1 inside the guest*' {
+                $controls['StatusText'].Text = 'Capturing inside guest VM...'
+            }
+            '*Copying output back to*' {
+                $controls['StatusText'].Text = 'Copying output back to host...'
+            }
+            '*Reverting *back to baseline checkpoint*' {
+                $controls['StatusText'].Text = 'Reverting VM to baseline...'
+            }
+        }
     }
 
     if (Test-PackagingJobComplete -Job $script:CurrentJob) {

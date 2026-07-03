@@ -41,10 +41,14 @@ function Start-PackagingJob {
     $outputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $outputCollection = New-Object 'System.Management.Automation.PSDataCollection[psobject]'
 
+    # DataAdded fires on the background runspace's thread. GetNewClosure() only copies
+    # variables into the closure's session state, not the Function: drive, so the
+    # conversion function has to be captured as a scriptblock variable to be reachable.
+    $convertToDisplayText = ${function:ConvertTo-PackagingDisplayText}
     $outputCollection.add_DataAdded({
         param($sender, $e)
         $item = $sender[$e.Index]
-        $outputQueue.Enqueue((ConvertTo-PackagingDisplayText -Item $item))
+        $outputQueue.Enqueue((& $convertToDisplayText -Item $item))
     }.GetNewClosure())
 
     $ps = [System.Management.Automation.PowerShell]::Create()
@@ -108,7 +112,7 @@ function Stop-PackagingJob {
         [Parameter(Mandatory)]$Job
     )
     try {
-        $Job.PowerShell.Stop()
+        $Job.PowerShell.BeginStop({}, $null) | Out-Null
     }
     catch {
         # best-effort cancellation only
