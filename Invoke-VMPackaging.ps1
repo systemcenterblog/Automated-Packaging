@@ -3,14 +3,27 @@
     Runs Cloudpaging Studio non-interactive packaging inside a Hyper-V VM, using
     a checkpoint to guarantee every run starts from an identical clean state.
 .DESCRIPTION
-    Two modes:
-      -Setup   : one-time baseline creation. Boots the VM, verifies Studio is
-                 installed and UAC is disabled inside the guest, then takes a
-                 checkpoint to use as the restore point for every future run.
-      (default): restores the VM to the baseline checkpoint, boots it, copies
-                 the installer + JSON config in, runs studio-nip.ps1 inside the
-                 guest via PowerShell Direct, copies the resulting output back
-                 to the host, then reverts the VM to baseline again.
+    Modes:
+      -Setup        : one-time baseline creation. Boots the VM, verifies Studio is
+                       installed and UAC is disabled inside the guest, then takes a
+                       checkpoint to use as the restore point for every future run.
+      (default)     : restores the VM to the baseline checkpoint, boots it, copies
+                       the installer + JSON config in, runs studio-nip.ps1 inside the
+                       guest via PowerShell Direct, copies the resulting output back
+                       to the host, then reverts the VM to baseline again. Silent
+                       install, capture, and finalize into .stp all happen in one
+                       unattended run.
+      -CaptureOnly  : same as default up through silent install + capture, but the
+                       generated JSON forces FinalizeIntoSTP=false so Studio captures
+                       the project without building the .stp, and the VM is left
+                       running afterward (never reverted) so an engineer can connect,
+                       review the captured project in Cloudpaging Studio's GUI, make
+                       additional customizations, and click Build when ready. Writes
+                       a small state file recording the pending review.
+      -CollectOutput: resumes a run started with -CaptureOnly. Connects to the
+                       still-running VM (without restoring it -- that would destroy
+                       the engineer's work), copies the finished output back to the
+                       host, then reverts the VM to baseline.
 .PARAMETER VMName
     Name of the Hyper-V VM. Defaults to "CloudPagingStudio".
 .PARAMETER BaselineCheckpoint
@@ -38,6 +51,15 @@
 .PARAMETER SkipRevertAfter
     Leave the VM running after copying output out instead of immediately
     reverting it to baseline. Useful for inspecting a failed/interesting run.
+.PARAMETER CaptureOnly
+    Run silent install + capture only (forces FinalizeIntoSTP=false), then leave
+    the VM running for an engineer to review/customize the project in Cloudpaging
+    Studio's GUI before finalizing. Follow up with -CollectOutput once ready.
+.PARAMETER CollectOutput
+    Resume a run started with -CaptureOnly: connect to the still-running VM
+    (without reverting it first), collect the finished output, then revert to
+    baseline. Only -AppName (and optionally -VMName/-HostOutputRoot/-GuestNipRoot)
+    are relevant in this mode.
 .PARAMETER BootTimeoutSec
     How long to wait for the guest to become reachable via PowerShell Direct
     after starting it. Defaults to 300 seconds.
@@ -120,6 +142,11 @@
 .EXAMPLE
     .\Invoke-VMPackaging.ps1 -AppName '7-Zip' -InstallerPath '.\Samples\7-Zip\7-ZIP.exe' -Description '7-Zip auto-packaged' -Arguments '/S'
     Omits -JsonConfigPath, so the JSON is auto-generated via CreateJson.ps1 before packaging.
+
+.EXAMPLE
+    .\Invoke-VMPackaging.ps1 -CaptureOnly -AppName '7-Zip' -InstallerPath '.\Samples\7-Zip\7-ZIP.exe'
+    ... engineer reviews/customizes the project in Cloudpaging Studio on the VM, then clicks Build ...
+    .\Invoke-VMPackaging.ps1 -CollectOutput -AppName '7-Zip'
 #>
 
 [CmdletBinding(DefaultParameterSetName = "Package")]
@@ -134,12 +161,16 @@ param(
     [string]$AppName,
     [Parameter(ParameterSetName = "Package", Mandatory = $false)]
     [string]$JsonConfigPath,
-    [Parameter(ParameterSetName = "Package", Mandatory = $true)]
+    [Parameter(ParameterSetName = "Package")]
     [string]$InstallerPath,
     [Parameter(ParameterSetName = "Package")]
     [string]$HostOutputRoot = "C:\Apps\Automated-Packaging\Output",
     [Parameter(ParameterSetName = "Package")]
     [switch]$SkipRevertAfter,
+    [Parameter(ParameterSetName = "Package")]
+    [switch]$CaptureOnly,
+    [Parameter(ParameterSetName = "Package")]
+    [switch]$CollectOutput,
 
     # Forwarded to CreateJson.ps1 when -JsonConfigPath is not supplied.
     [Parameter(ParameterSetName = "Package")] [string]$Description,
@@ -191,6 +222,31 @@ $script:CreateJsonParamNames = @(
     'ReplaceRegistryShortPaths', 'IncludeChildProccesses', 'Prerequisites',
     'PrerequisiteCommands', 'DefaultServiceVirtualizationAction', 'FinalizeIntoSTP'
 )
+
+function Get-VMCredential {
+    param(
+        [Parameter(Mandatory)][string]$Message
+    )
+
+    $envPath = Join-Path $PSScriptRoot '.env'
+    if (Test-Path -Path $envPath) {
+        $envVars = @{}
+        Get-Content -Path $envPath | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -NOT $line.StartsWith('#') -and $line.Contains('=')) {
+                $key, $value = $line.Split('=', 2)
+                $envVars[$key.Trim()] = $value.Trim()
+            }
+        }
+
+        if ($envVars['VM_USERNAME'] -and $envVars['VM_PASSWORD']) {
+            $securePassword = ConvertTo-SecureString -String $envVars['VM_PASSWORD'] -AsPlainText -Force
+            return New-Object System.Management.Automation.PSCredential($envVars['VM_USERNAME'], $securePassword)
+        }
+    }
+
+    return Get-Credential -Message $Message
+}
 
 function Wait-VMReady {
     param(
@@ -248,7 +304,7 @@ function New-GuestPatchedConfig {
 }
 
 if ($Setup) {
-    $cred = Get-Credential -Message "Guest admin credentials for VM '$VMName'"
+    $cred = Get-VMCredential -Message "Guest admin credentials for VM '$VMName'"
     $session = Start-VMAndWait -VMName $VMName -Credential $cred -TimeoutSec $BootTimeoutSec
 
     try {
@@ -291,6 +347,62 @@ if ($Setup) {
 }
 
 # Packaging run
+if ($CaptureOnly -and $CollectOutput) {
+    throw "-CaptureOnly and -CollectOutput are mutually exclusive."
+}
+
+$hostAppOutput = Join-Path $HostOutputRoot $AppName
+New-Item -ItemType Directory -Path $hostAppOutput -Force | Out-Null
+$pendingReviewPath = Join-Path $hostAppOutput "_pending-review.json"
+
+if ($CollectOutput) {
+    $ignoredPassthrough = @('JsonConfigPath', 'InstallerPath') + $script:CreateJsonParamNames | Where-Object { $PSBoundParameters.ContainsKey($_) }
+    if ($ignoredPassthrough) {
+        Write-Warning "-CollectOutput does not generate a JSON or run capture; these parameters are ignored: $($ignoredPassthrough -join ', ')"
+    }
+
+    if (-NOT (Test-Path -Path $pendingReviewPath)) {
+        throw "No pending review found for '$AppName' (expected $pendingReviewPath). Run -CaptureOnly first."
+    }
+    $pending = Get-Content -Path $pendingReviewPath -Raw | ConvertFrom-Json
+
+    $cred = Get-VMCredential -Message "Guest admin credentials for VM '$($pending.VMName)'"
+    $session = $null
+    try {
+        Write-Host "Connecting to '$($pending.VMName)' (not reverting first -- the engineer's in-progress Studio work must be preserved)..."
+        $session = Start-VMAndWait -VMName $pending.VMName -Credential $cred -TimeoutSec $BootTimeoutSec
+
+        Write-Host "Copying output back to $hostAppOutput..."
+        Copy-Item -Path "$($pending.GuestOutput)\*" -Destination $hostAppOutput -Recurse -FromSession $session -Force
+
+        $savedJsonPath = Join-Path $hostAppOutput "$AppName.json"
+        if (Test-Path -Path $savedJsonPath) {
+            # Record-keeping only: reflects the capture-time config, not any customizations
+            # made by hand in the Studio GUI (Studio doesn't export those back to this schema).
+            $finalJson = Get-Content -Path $savedJsonPath -Raw | ConvertFrom-Json
+            $finalJson.OutputSettings.FinalizeIntoSTP = $true
+            $finalJson | ConvertTo-Json -Depth 20 | Out-File -FilePath $savedJsonPath -Encoding utf8
+        }
+
+        $produced = Get-ChildItem -Path $hostAppOutput -Filter *.stp -ErrorAction SilentlyContinue
+        if ($produced) {
+            Write-Host "Packaging succeeded: $($produced.FullName -join ', ')"
+        }
+        else {
+            Write-Warning "No .stp file found in $hostAppOutput -- confirm the project was finalized (Build) in Cloudpaging Studio before running -CollectOutput."
+        }
+    }
+    finally {
+        if ($session) { Remove-PSSession $session -ErrorAction SilentlyContinue }
+        Write-Host "Reverting '$($pending.VMName)' back to baseline checkpoint '$($pending.BaselineCheckpoint)'..."
+        Restore-VMSnapshot -VMName $pending.VMName -Name $pending.BaselineCheckpoint -Confirm:$false
+        Remove-Item -Path $pendingReviewPath -Force -ErrorAction SilentlyContinue
+    }
+    return
+}
+
+if (-NOT $InstallerPath) { throw "-InstallerPath is required unless -CollectOutput is specified." }
+
 $generateJson = -not $PSBoundParameters.ContainsKey('JsonConfigPath')
 if (-NOT $generateJson -and -NOT (Test-Path -Path $JsonConfigPath)) { throw "JSON config not found: $JsonConfigPath" }
 if (-NOT (Test-Path -Path $InstallerPath)) { throw "Installer not found: $InstallerPath" }
@@ -298,12 +410,9 @@ if (-NOT (Get-VMSnapshot -VMName $VMName -Name $BaselineCheckpoint -ErrorAction 
     throw "Baseline checkpoint '$BaselineCheckpoint' not found on VM '$VMName'. Run -Setup first."
 }
 
-$cred = Get-Credential -Message "Guest admin credentials for VM '$VMName'"
+$cred = Get-VMCredential -Message "Guest admin credentials for VM '$VMName'"
 $scratchDir = Join-Path $env:TEMP "VMPackaging_$AppName_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 New-Item -ItemType Directory -Path $scratchDir -Force | Out-Null
-
-$hostAppOutput = Join-Path $HostOutputRoot $AppName
-New-Item -ItemType Directory -Path $hostAppOutput -Force | Out-Null
 
 if ($generateJson) {
     # JsonConfigPath omitted -- generate it via CreateJson.ps1. CreateJson.ps1
@@ -318,6 +427,10 @@ if ($generateJson) {
     $createJsonArgs = @{ Filepath = $scratchInstallerCopy }
     foreach ($p in $script:CreateJsonParamNames) {
         if ($PSBoundParameters.ContainsKey($p)) { $createJsonArgs[$p] = $PSBoundParameters[$p] }
+    }
+    if ($CaptureOnly) {
+        # Capture without finalizing so the project stays open in Studio for review.
+        $createJsonArgs['FinalizeIntoSTP'] = $false
     }
 
     Write-Host "No -JsonConfigPath supplied; generating packaging JSON via CreateJson.ps1..."
@@ -338,6 +451,9 @@ else {
     $ignoredPassthrough = $script:CreateJsonParamNames | Where-Object { $PSBoundParameters.ContainsKey($_) }
     if ($ignoredPassthrough) {
         Write-Warning "JsonConfigPath was supplied; these CreateJson.ps1 passthrough parameters are ignored: $($ignoredPassthrough -join ', ')"
+    }
+    if ($CaptureOnly) {
+        Write-Warning "-CaptureOnly has no effect on FinalizeIntoSTP when -JsonConfigPath is supplied directly -- the value in that file is used as-is."
     }
     $effectiveJsonConfigPath = $JsonConfigPath
 }
@@ -366,9 +482,30 @@ try {
         -InstallerFileName $installerFileName -ScratchDir $scratchDir
 
     Write-Host "Copying installer and config into the guest..."
-    Copy-Item -Path $InstallerPath -Destination $guestInstallerCfg -ToSession $session
-    Copy-Item -Path $patchedJson -Destination $guestInstallerCfg -ToSession $session
+    Copy-Item -Path $InstallerPath -Destination $guestInstallerCfg -ToSession $session -Force -ErrorAction Stop
+    Copy-Item -Path $patchedJson -Destination $guestInstallerCfg -ToSession $session -Force -ErrorAction Stop
     $guestJsonPath = "$guestInstallerCfg\$(Split-Path $patchedJson -Leaf)"
+    $guestInstallerPath = "$guestInstallerCfg\$installerFileName"
+
+    # Copy-Item -ToSession has been observed to report success while leaving the
+    # destination file missing/short on PS Direct sessions -- verify explicitly
+    # rather than silently proceeding to run studio-nip.ps1 against a missing installer.
+    $expectedInstallerSize = (Get-Item -Path $InstallerPath).Length
+    $copyCheck = Invoke-Command -Session $session -ScriptBlock {
+        param($installerPath, $jsonPath)
+        [pscustomobject]@{
+            InstallerPresent = Test-Path -Path $installerPath
+            InstallerSize    = if (Test-Path -Path $installerPath) { (Get-Item -Path $installerPath).Length } else { -1 }
+            JsonPresent      = Test-Path -Path $jsonPath
+        }
+    } -ArgumentList $guestInstallerPath, $guestJsonPath
+
+    if (-NOT $copyCheck.InstallerPresent -or $copyCheck.InstallerSize -ne $expectedInstallerSize) {
+        throw "Installer failed to copy into the guest correctly: expected '$guestInstallerPath' ($expectedInstallerSize bytes), found present=$($copyCheck.InstallerPresent) size=$($copyCheck.InstallerSize)."
+    }
+    if (-NOT $copyCheck.JsonPresent) {
+        throw "Patched JSON config failed to copy into the guest: expected at '$guestJsonPath'."
+    }
 
     Write-Host "Running studio-nip.ps1 inside the guest..."
     Invoke-Command -Session $session -ScriptBlock {
@@ -376,11 +513,36 @@ try {
         & $nipScript -config_file_path $configPath
     } -ArgumentList "$GuestNipRoot\studio-nip.ps1", $guestJsonPath | ForEach-Object { Write-Host $_ }
 
-    Write-Host "Copying output back to $hostAppOutput..."
-    Copy-Item -Path "$guestOutput\*" -Destination $hostAppOutput -Recurse -FromSession $session -Force
-
     Write-Host "Copying JSON config back to $hostAppOutput..."
     Copy-Item -Path $effectiveJsonConfigPath -Destination (Join-Path $hostAppOutput "$AppName.json") -Force
+
+    if ($CaptureOnly) {
+        $pendingState = [pscustomobject]@{
+            VMName             = $VMName
+            BaselineCheckpoint = $BaselineCheckpoint
+            AppName            = $AppName
+            GuestNipRoot       = $GuestNipRoot
+            GuestAppRoot       = $guestAppRoot
+            GuestInstallerCfg  = $guestInstallerCfg
+            GuestOutput        = $guestOutput
+            Timestamp          = (Get-Date).ToString('o')
+        }
+        $pendingState | ConvertTo-Json | Out-File -FilePath $pendingReviewPath -Encoding utf8
+
+        $projectName = (Get-Content -Path $effectiveJsonConfigPath -Raw | ConvertFrom-Json).ProjectSettings.ProjectName
+        Write-Host ""
+        Write-Host "Capture complete. VM '$VMName' is left running with project '$projectName' open for review."
+        Write-Host "  1. Console/RDP into '$VMName'."
+        Write-Host "  2. Open Cloudpaging Studio and review the captured project."
+        Write-Host "  3. Add any additional customizations directly in Studio."
+        Write-Host "  4. Click Build/Finalize to produce the .stp."
+        Write-Host "  5. Run: .\Invoke-VMPackaging.ps1 -CollectOutput -AppName '$AppName'"
+        Write-Host ""
+        return
+    }
+
+    Write-Host "Copying output back to $hostAppOutput..."
+    Copy-Item -Path "$guestOutput\*" -Destination $hostAppOutput -Recurse -FromSession $session -Force
 
     $produced = Get-ChildItem -Path $hostAppOutput -Filter *.stp -ErrorAction SilentlyContinue
     if ($produced) {
@@ -393,7 +555,10 @@ try {
 finally {
     if ($session) { Remove-PSSession $session -ErrorAction SilentlyContinue }
 
-    if (-NOT $SkipRevertAfter) {
+    if ($CaptureOnly) {
+        Write-Host "Skipping revert -- VM '$VMName' left running for engineer review (-CaptureOnly)."
+    }
+    elseif (-NOT $SkipRevertAfter) {
         Write-Host "Reverting '$VMName' back to baseline checkpoint '$BaselineCheckpoint'..."
         Restore-VMSnapshot -VMName $VMName -Name $BaselineCheckpoint -Confirm:$false
     }

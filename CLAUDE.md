@@ -1,73 +1,43 @@
-# Agent Instructions
+# Cloudpaging Automated-Packaging
 
-You're working inside the **WAT framework** (Workflows, Agents, Tools). This architecture separates concerns so that probabilistic AI handles reasoning while deterministic code handles execution. That separation is what makes this system reliable.
+This repo automates application packaging with Numecent's **Cloudpaging Studio**: it takes a Windows installer, silently installs and captures it inside a disposable Hyper-V VM, and produces a Cloudpaging `.stp` appset — driven end-to-end by a JSON config file and PowerShell.
 
-## The WAT Architecture
+There is no Python/tools/workflows layer here (despite what an earlier version of this file said) — the whole pipeline is PowerShell + JSON + Hyper-V.
 
-**Layer 1: Workflows (The Instructions)**
-- Markdown SOPs stored in `workflows/`
-- Each workflow defines the objective, required inputs, which tools to use, expected outputs, and how to handle edge cases
-- Written in plain language, the same way you'd brief someone on your team
+## Pipeline
 
-**Layer 2: Agents (The Decision-Maker)**
-- This is your role. You're responsible for intelligent coordination.
-- Read the relevant workflow, run tools in the correct sequence, handle failures gracefully, and ask clarifying questions when needed
-- You connect intent to execution without trying to do everything yourself
-- Example: If you need to pull data from a website, don't attempt it directly. Read `workflows/scrape_website.md`, figure out the required inputs, then execute `tools/scrape_single_site.py`
-
-**Layer 3: Tools (The Execution)**
-- Python scripts in `tools/` that do the actual work
-- API calls, data transformations, file operations, database queries
-- Credentials and API keys are stored in `.env`
-- These scripts are consistent, testable, and fast
-
-**Why this matters:** When AI tries to handle every step directly, accuracy drops fast. If each step is 90% accurate, you're down to 59% success after just five steps. By offloading execution to deterministic scripts, you stay focused on orchestration and decision-making where you excel.
-
-## How to Operate
-
-**1. Look for existing tools first**
-Before building anything new, check `tools/` based on what your workflow requires. Only create new scripts when nothing exists for that task.
-
-**2. Learn and adapt when things fail**
-When you hit an error:
-- Read the full error message and trace
-- Fix the script and retest (if it uses paid API calls or credits, check with me before running again)
-- Document what you learned in the workflow (rate limits, timing quirks, unexpected behavior)
-- Example: You get rate-limited on an API, so you dig into the docs, discover a batch endpoint, refactor the tool to use it, verify it works, then update the workflow so this never happens again
-
-**3. Keep workflows current**
-Workflows should evolve as you learn. When you find better methods, discover constraints, or encounter recurring issues, update the workflow. That said, don't create or overwrite workflows without asking unless I explicitly tell you to. These are your instructions and need to be preserved and refined, not tossed after one use.
-
-## The Self-Improvement Loop
-
-Every failure is a chance to make the system stronger:
-1. Identify what broke
-2. Fix the tool
-3. Verify the fix works
-4. Update the workflow with the new approach
-5. Move on with a more robust system
-
-This loop is how the framework improves over time.
-
-## File Structure
-
-**What goes where:**
-- **Deliverables**: Final outputs go to cloud services (Google Sheets, Slides, etc.) where I can access them directly
-- **Intermediates**: Temporary processing files that can be regenerated
-
-**Directory layout:**
-```
-.tmp/           # Temporary files (scraped data, intermediate exports). Regenerated as needed.
-tools/          # Python scripts for deterministic execution
-workflows/      # Markdown SOPs defining what to do and how
-.env            # API keys and environment variables (NEVER store secrets anywhere else)
-credentials.json, token.json  # Google OAuth (gitignored)
+```text
+CreateJson.ps1  ──►  JSON config  ──►  Invoke-VMPackaging.ps1  ──►  studio-nip.ps1 (inside guest VM)  ──►  .stp appset
 ```
 
-**Core principle:** Local files are just for processing. Anything I need to see or use lives in cloud services. Everything in `.tmp/` is disposable.
+- **[CreateJson.ps1](CreateJson.ps1)** — generates a packaging JSON config from an installer file + optional parameters (silent-install args, file/registry exclusions, custom dispositions, file/registry additions, etc.). Fully parameterized; see its param block for the complete list. Hardcoded baseline exclusions live in the JSON template inside this script — caller-supplied exclusions are appended on top, never replacing them.
+- **[Invoke-VMPackaging.ps1](Invoke-VMPackaging.ps1)** — the host-side orchestrator. Restores a Hyper-V VM to a clean baseline checkpoint, boots it, copies the installer + JSON in, runs `studio-nip.ps1` inside the guest via PowerShell Direct, copies the output back to `Output\<AppName>\`, then reverts the VM. Modes:
+  - **`-Setup`**: one-time — verifies Studio is installed and UAC is disabled in the guest, then takes the baseline checkpoint.
+  - **(default)**: full unattended run — silent install, capture, and finalize into `.stp` in one shot, VM always reverted after.
+  - **`-CaptureOnly`** / **`-CollectOutput`**: two-phase run for when a human needs to review/customize the capture before it's finalized. `-CaptureOnly` captures (JSON forces `FinalizeIntoSTP=false`) and leaves the VM running instead of reverting; an engineer then reviews/customizes the project directly in Cloudpaging Studio's GUI on that VM and clicks Build. `-CollectOutput` reconnects to that same VM (without restoring it — that would destroy the engineer's work), collects the finished `.stp`, then reverts. State between the two calls is tracked via `Output\<AppName>\_pending-review.json`.
+- **[studio-nip.ps1](studio-nip.ps1)** — runs inside the guest VM (from Numecent, treat as vendored/third-party — don't casually rewrite it). Reads the JSON config, builds a silent-install wrapper batch file and Studio's INI/DAT filter files from it, then drives `JukeboxStudio.exe`/`CloudpagingStudio.exe` non-interactively (`-a`) to install, capture, and (if `OutputSettings.FinalizeIntoSTP` is true) finalize into a `.stp`.
+- **[CloudpagingStudio-prep.ps1](CloudpagingStudio-prep.ps1)** — one-time guest environment prep (disables Windows Update, Defender cloud protection, Search, Superfetch, System Restore, scheduled tasks, UAC). Run manually inside the guest before `-Setup`; not called automatically by `Invoke-VMPackaging.ps1`.
 
-## Bottom Line
+## JSON config schema
 
-You sit between what I want (workflows) and what actually gets done (tools). Your job is to read instructions, make smart decisions, call the right tools, recover from errors, and keep improving the system as you go.
+The full schema (`ProjectSettings`, `CaptureSettings`, `CaptureCommands`, `PostCaptureCommands`, `ModifyAssets`, `VirtualizationSettings`, `SecurityOverrideSettings`, `OutputSettings`) is documented with examples in [README.md](README.md). `Samples/` contains ~150 real-world example configs (one JSON per app) that are useful references for how a given installer type/vendor is typically configured.
 
-Stay pragmatic. Stay reliable. Keep learning.
+## Directory layout
+
+```text
+CreateJson.ps1              # Generates a JSON packaging config from an installer + params
+Invoke-VMPackaging.ps1      # Host-side orchestrator (Hyper-V + PowerShell Direct)
+studio-nip.ps1              # Runs inside the guest VM, drives Cloudpaging Studio non-interactively
+CloudpagingStudio-prep.ps1  # One-time guest environment prep (run manually inside guest)
+Samples/<App>/*.json        # ~150 example packaging configs, one per application
+Example_JSON_1.*.json       # Minimal schema examples referenced by README.md
+Output/<AppName>/           # Per-app output: .stp, JSON copy, logs. Gitignored, regenerated per run.
+```
+
+No `.env`, `tools/`, or `workflows/` directories exist in this repo — there are no external API integrations here; everything runs against a local Hyper-V VM and the local filesystem.
+
+## Working in this repo
+
+- **`Invoke-VMPackaging.ps1` requires a real Hyper-V VM** with Cloudpaging Studio installed and a `Studio-Baseline` checkpoint (via `-Setup`) to actually run — most changes to it can only be verified end-to-end against that VM, not by static checks alone.
+- **`studio-nip.ps1` is vendor-supplied** (Numecent) — prefer changing `CreateJson.ps1`/`Invoke-VMPackaging.ps1` to get the desired JSON/behavior rather than modifying this script, unless there's a genuine bug in it.
+- When adding new JSON-config-affecting parameters, add them to **both** `CreateJson.ps1`'s param block/JSON template **and** `Invoke-VMPackaging.ps1`'s `$script:CreateJsonParamNames` passthrough list, or `Invoke-VMPackaging.ps1` won't forward them when auto-generating the JSON.

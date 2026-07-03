@@ -1,3 +1,4 @@
 Output/*
 *.exe
 *.msi
+.env

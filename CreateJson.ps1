@@ -87,31 +87,14 @@ Param(
     [boolean]$FinalizeIntoSTP = $true
 )
 
-    #Set unparamterised variables
-    $Projworkingfolder_variable = 'C:\NIP_software\auto'
-
     $date = Get-Date
 
     #set installer path
     $filepath = $filepath.Replace("`"", '')
-    $Projinstaller_variable = (Get-ChildItem "$filepath").name
-    if ($Projinstaller_variable -like '*.msi') {
-        $Projinstaller_variable = "msiexec /i `\`"" + ("$Projworkingfolder_variable\$Projinstaller_variable").replace('\', '\\' ) + "`\`""
-
-        if (!$Arguments) {
-            $Arguments = '/qn /norestart'
-        }
+    $installerFileName = (Get-ChildItem "$filepath").name
+    if ($installerFileName -like '*.msi' -and !$Arguments) {
+        $Arguments = '/qn /norestart'
     }
-    elseif ($Projinstaller_variable -like '*.ps1') {
-        $Projinstaller_variable = "powershell.exe -executionpolicy bypass -file `\`"" + ("$Projworkingfolder_variable\$Projinstaller_variable").replace('\', '\\' ) + "`\`""
-    }
-    elseif ($Projinstaller_variable -like '*.bat' -or $Projinstaller_variable -like '*.cmd') {
-        $Projinstaller_variable = "`\`"" + ("$Projworkingfolder_variable\$Projinstaller_variable").replace('\', '\\' ) + "`\`""
-    }
-    else
-{
-$Projinstaller_variable = "`\`"" + ("$Projworkingfolder_variable\$Projinstaller_variable").replace('\', '\\' ) + "`\`""
-}
 
     if ($Arguments) {
         $Projinstallercustom_variable = " $Arguments"
@@ -372,11 +355,10 @@ if ($CaptureTimeoutSec -eq 1){
             },
             "InstallerPrefix": "md C:\\NIP_software\\Auto\\ 2>NUL & echo exit > \"C:\\NIP_software\\Auto\\$Name-placeholderInstallTarget.bat\" & cmd /c ",
             "InstallerPath": "\"C:\\NIP_software\\Auto\\$Name-placeholderInstallTarget.bat\"",
-            "InstallerCommands": "",
+            "InstallerCommands": "$Projinstallercustom_variable",
             "PostInstallActions": {
                 "Enabled": true,
                 "Commands": [
-                    "C:\\Windows\\System32\\cmd.exe /c $Projinstaller_variable$Projinstallercustom_variable",
                     "rem ",
                     "TIMEOUT /T 5 /NOBREAK >NUL",
                     "del \"C:\\NIP_software\\Auto\\$Name-placeholderInstallTarget.bat\" /F /Q"$CustomCommandlinesjson
