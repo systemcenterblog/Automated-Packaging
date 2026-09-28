@@ -90,11 +90,12 @@ function Update-VMList {
         if (-NOT $script:controls['VMNameCombo'].Text) { $script:controls['VMNameCombo'].Text = 'CloudPagingStudio' }
     }
 }
-# Captured as a scriptblock so it can be called by name from inside .Add_Click({...}) --
-# a bare function-name call there isn't guaranteed to resolve depending on how WPF invokes
-# that particular event (GetNewClosure() only copies variables, not the Function: drive).
-$script:updateVmListFn = ${function:Update-VMList}
-$script:controls['RefreshVmsButton'].Add_Click({ & $script:updateVmListFn }.GetNewClosure())
+# Event handlers in this file deliberately do NOT use .GetNewClosure(): that binds the handler
+# to a new dynamic module parented to the global scope, hiding every function dot-sourced into
+# the launcher's script scope (and an error escaping such a handler during ShowDialog() crashes
+# with "Global scope cannot be removed"). WPF runs these handlers synchronously inside
+# ShowDialog() on this runspace, so plain scriptblocks resolve script-scope functions fine.
+$script:controls['RefreshVmsButton'].Add_Click({ Update-VMList })
 Update-VMList
 
 # ---- File/folder pickers ---------------------------------------------------------
@@ -147,41 +148,42 @@ $script:controls['ModeCaptureOnlyRadio'].Add_Checked($updateFinalizeCheckState)
 # ---- Wizard -> CreateJson.ps1 argument mapping ---------------------------------------------------------
 
 function Get-CreateJsonArgsFromWizard {
-    $args = @{}
+    # Not named $args -- that's a PowerShell automatic variable.
+    $result = @{}
 
-    if ($script:controls['DescriptionBox'].Text) { $args['Description'] = $script:controls['DescriptionBox'].Text }
-    if ($script:controls['NameBox'].Text) { $args['Name'] = $script:controls['NameBox'].Text }
-    if ($script:controls['IconFileBox'].Text) { $args['IconFile'] = $script:controls['IconFileBox'].Text }
-    if ($script:controls['WorkingFolderBox'].Text) { $args['WorkingFolder'] = $script:controls['WorkingFolderBox'].Text }
-    if ($script:controls['ArgumentsBox'].Text) { $args['Arguments'] = $script:controls['ArgumentsBox'].Text }
-    if ($script:controls['StudioCommandlineBox'].Text) { $args['StudioCommandline'] = $script:controls['StudioCommandlineBox'].Text }
-    if ($script:controls['OutputFolderBox'].Text) { $args['outputfolder'] = $script:controls['OutputFolderBox'].Text }
-    if ($script:controls['OutputFileNameNoExtBox'].Text) { $args['OutputFileNameNoExt'] = $script:controls['OutputFileNameNoExtBox'].Text }
+    if ($script:controls['DescriptionBox'].Text) { $result['Description'] = $script:controls['DescriptionBox'].Text }
+    if ($script:controls['NameBox'].Text) { $result['Name'] = $script:controls['NameBox'].Text }
+    if ($script:controls['IconFileBox'].Text) { $result['IconFile'] = $script:controls['IconFileBox'].Text }
+    if ($script:controls['WorkingFolderBox'].Text) { $result['WorkingFolder'] = $script:controls['WorkingFolderBox'].Text }
+    if ($script:controls['ArgumentsBox'].Text) { $result['Arguments'] = $script:controls['ArgumentsBox'].Text }
+    if ($script:controls['StudioCommandlineBox'].Text) { $result['StudioCommandline'] = $script:controls['StudioCommandlineBox'].Text }
+    if ($script:controls['OutputFolderBox'].Text) { $result['outputfolder'] = $script:controls['OutputFolderBox'].Text }
+    if ($script:controls['OutputFileNameNoExtBox'].Text) { $result['OutputFileNameNoExt'] = $script:controls['OutputFileNameNoExtBox'].Text }
 
-    $args['Compression'] = $script:controls['CompressionCombo'].Text
-    $args['Encryption'] = $script:controls['EncryptionCombo'].Text
-    $args['DefaultDispositionLayer'] = $script:controls['DefaultDispositionLayerCombo'].Text
-    $args['DefaultServiceVirtualizationAction'] = $script:controls['DefaultServiceVirtualizationActionCombo'].Text
+    $result['Compression'] = $script:controls['CompressionCombo'].Text
+    $result['Encryption'] = $script:controls['EncryptionCombo'].Text
+    $result['DefaultDispositionLayer'] = $script:controls['DefaultDispositionLayerCombo'].Text
+    $result['DefaultServiceVirtualizationAction'] = $script:controls['DefaultServiceVirtualizationActionCombo'].Text
 
     $timeoutValue = 1
     if ([int]::TryParse($script:controls['CaptureTimeoutSecBox'].Text, [ref]$timeoutValue) -and $timeoutValue -ge 1) {
-        $args['CaptureTimeoutSec'] = $timeoutValue
+        $result['CaptureTimeoutSec'] = $timeoutValue
     }
 
-    $args['CaptureAllProcesses'] = [bool]$script:controls['CaptureAllProcessesCheck'].IsChecked
-    $args['IncludeSystemInstallationProcesses'] = [bool]$script:controls['IncludeSystemInstallationProcessesCheck'].IsChecked
-    $args['IgnoreChangesUnderInstallerPath'] = [bool]$script:controls['IgnoreChangesUnderInstallerPathCheck'].IsChecked
-    $args['ReplaceRegistryShortPaths'] = [bool]$script:controls['ReplaceRegistryShortPathsCheck'].IsChecked
-    $args['IncludeChildProccesses'] = [bool]$script:controls['IncludeChildProccessesCheck'].IsChecked
-    $args['Prerequisites'] = [bool]$script:controls['PrerequisitesCheck'].IsChecked
-    $args['FinalizeIntoSTP'] = [bool]$script:controls['FinalizeIntoSTPCheck'].IsChecked
+    $result['CaptureAllProcesses'] = [bool]$script:controls['CaptureAllProcessesCheck'].IsChecked
+    $result['IncludeSystemInstallationProcesses'] = [bool]$script:controls['IncludeSystemInstallationProcessesCheck'].IsChecked
+    $result['IgnoreChangesUnderInstallerPath'] = [bool]$script:controls['IgnoreChangesUnderInstallerPathCheck'].IsChecked
+    $result['ReplaceRegistryShortPaths'] = [bool]$script:controls['ReplaceRegistryShortPathsCheck'].IsChecked
+    $result['IncludeChildProccesses'] = [bool]$script:controls['IncludeChildProccessesCheck'].IsChecked
+    $result['Prerequisites'] = [bool]$script:controls['PrerequisitesCheck'].IsChecked
+    $result['FinalizeIntoSTP'] = [bool]$script:controls['FinalizeIntoSTPCheck'].IsChecked
 
     foreach ($field in $listEditorFields) {
         $items = Get-ListEditorItems -ListBox $script:controls["${field}List"]
-        if ($items.Count -gt 0) { $args[$field] = $items }
+        if ($items.Count -gt 0) { $result[$field] = $items }
     }
 
-    return $args
+    return $result
 }
 
 # ---- Advanced JSON tab ---------------------------------------------------------
@@ -251,7 +253,7 @@ $script:controls['ValidateJsonButton'].Add_Click({
 $script:controls['RevertJsonButton'].Add_Click({
     & $previewAdvancedJson
     $script:AdvancedJsonEdited = $false
-}.GetNewClosure())
+})
 
 # ---- Run execution (Tab 1: Start Run / Cancel) ---------------------------------------------------------
 
@@ -285,11 +287,6 @@ function Start-Run {
     $script:CurrentJob = Start-PackagingJob -ScriptPath $ScriptPath -Arguments $Arguments
     $script:PollTimer.Start()
 }
-# Captured as a scriptblock so it can be called by name from event-handler scriptblocks below --
-# GetNewClosure() only copies variables into a closure, not the Function: drive (see
-# PackagingRunner.ps1's Start-PackagingJob), so a bare `Start-Run` call inside .Add_Click({...})
-# can fail to resolve depending on how WPF invokes that particular event.
-$script:startRunFn = ${function:Start-Run}
 
 $script:controls['StartRunButton'].Add_Click({
     $appName = $script:controls['AppNameBox'].Text
@@ -336,8 +333,8 @@ $script:controls['StartRunButton'].Add_Click({
         foreach ($key in $wizardArgs.Keys) { $invokeArgs[$key] = $wizardArgs[$key] }
     }
 
-    & $script:startRunFn -ScriptPath $script:InvokeVMPackagingScript -Arguments $invokeArgs -AppName $appName -IsCaptureOnly $isCaptureOnly
-}.GetNewClosure())
+    Start-Run -ScriptPath $script:InvokeVMPackagingScript -Arguments $invokeArgs -AppName $appName -IsCaptureOnly $isCaptureOnly
+})
 
 $script:controls['CancelRunButton'].Add_Click({
     if ($script:CurrentJob) {
@@ -357,8 +354,6 @@ function Update-PendingReviewGrid {
     $items = Get-PendingReviewApps -HostOutputRoot $script:HostOutputRoot
     $script:controls['PendingReviewGrid'].ItemsSource = @($items)
 }
-# See the comment on $script:startRunFn above -- same reasoning applies here.
-$script:updatePendingReviewGridFn = ${function:Update-PendingReviewGrid}
 
 $script:PollTimer.Add_Tick({
   try {
@@ -403,7 +398,7 @@ $script:PollTimer.Add_Tick({
         elseif ($script:CurrentRunIsCaptureOnly) {
             $script:controls['StatusText'].Text = 'Silent install/capture started in the background on the VM. Studio runs headlessly and exits on its own -- it will NOT be open waiting for you. Console/RDP in, wait for it to finish, then manually open the project (.stw) in Cloudpaging Studio to review/Build before using Collect Output. See Pending Review tab.'
             $script:controls['StatusText'].Foreground = 'DarkOrange'
-            & $script:updatePendingReviewGridFn
+            Update-PendingReviewGrid
         }
         elseif ($succeeded) {
             $script:controls['StatusText'].Text = 'Succeeded'
@@ -444,10 +439,10 @@ $script:controls['OpenMergeLogButton'].Add_Click({
 
 # ---- Pending Review tab ---------------------------------------------------------
 
-$script:controls['RefreshPendingButton'].Add_Click({ & $script:updatePendingReviewGridFn }.GetNewClosure())
+$script:controls['RefreshPendingButton'].Add_Click({ Update-PendingReviewGrid })
 $script:controls['PendingReviewGrid'].Add_SelectionChanged({
     $script:controls['CollectOutputButton'].IsEnabled = (-NOT $script:CurrentJob) -and $script:controls['PendingReviewGrid'].SelectedItem
-}.GetNewClosure())
+})
 
 $script:controls['CollectOutputButton'].Add_Click({
     $selected = $script:controls['PendingReviewGrid'].SelectedItem
@@ -460,8 +455,8 @@ $script:controls['CollectOutputButton'].Add_Click({
         HostOutputRoot = $script:HostOutputRoot
         CollectOutput  = $true
     }
-    & $script:startRunFn -ScriptPath $script:InvokeVMPackagingScript -Arguments $invokeArgs -AppName $selected.AppName -IsCaptureOnly $false
-}.GetNewClosure())
+    Start-Run -ScriptPath $script:InvokeVMPackagingScript -Arguments $invokeArgs -AppName $selected.AppName -IsCaptureOnly $false
+})
 
 Update-PendingReviewGrid
 
