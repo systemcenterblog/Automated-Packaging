@@ -1,4 +1,5 @@
 Output/*
+AppsAnywhere/*
 *.exe
 *.msi
 .env
